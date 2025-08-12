@@ -158,21 +158,20 @@ class ContestVotingBot:
             user_data_dir (str): Path to Chrome User Data directory
             
         Returns:
-            str: Full path to selected profile directory
+            str: Selected profile directory name (not full path)
         """
         profiles = self.detect_chrome_profiles(user_data_dir)
         
         if not profiles:
             print("No Chrome profiles found!")
-            default_path = os.path.join(user_data_dir, "Default")
-            print(f"Using default path: {default_path}")
-            return default_path
+            print(f"Using default profile: Default")
+            return "Default"
         
         if len(profiles) == 1:
-            profile_path = os.path.join(user_data_dir, profiles[0])
             print(f"Using Chrome profile: {profiles[0]}")
+            profile_path = os.path.join(user_data_dir, profiles[0])
             print(f"Profile directory: {profile_path}")
-            return profile_path
+            return profiles[0]
         
         # Multiple profiles found - let user choose
         print("\nMultiple Chrome profiles detected:")
@@ -192,15 +191,14 @@ class ContestVotingBot:
                     selected_path = os.path.join(user_data_dir, selected_profile)
                     print(f"Selected Chrome profile: {selected_profile}")
                     print(f"Using directory: {selected_path}")
-                    return selected_path
+                    return selected_profile  # Return just the profile name, not full path
                 else:
                     print(f"Please enter a number between 1 and {len(profiles)}")
             except ValueError:
                 print("Please enter a valid number")
             except KeyboardInterrupt:
                 print("\nUsing Default profile")
-                default_path = os.path.join(user_data_dir, "Default")
-                return default_path
+                return "Default"
     
     def select_browser(self):
         """Let user select which browser to use"""
@@ -263,10 +261,13 @@ class ContestVotingBot:
         if self.profile_path:
             if self.browser_choice == "chrome":
                 # For Chrome, let user select specific profile directory
-                selected_profile_path = self.select_chrome_profile(self.profile_path)
+                selected_profile_name = self.select_chrome_profile(self.profile_path)
                 
-                # Use the specific profile directory directly
-                chrome_options.add_argument(f"--user-data-dir={selected_profile_path}")
+                # Use correct Chrome arguments: user-data-dir + profile-directory
+                chrome_options.add_argument(f"--user-data-dir={self.profile_path}")
+                chrome_options.add_argument(f"--profile-directory={selected_profile_name}")
+                
+                selected_profile_path = os.path.join(self.profile_path, selected_profile_name)
                 print(f"Using Chrome profile directory: {selected_profile_path}")
                 print("Note: Chrome will use this profile directly (no copying)")
             else:
