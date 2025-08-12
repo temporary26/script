@@ -121,21 +121,93 @@ class ContestVotingBot:
         
         return executable_path, profile_path
     
+    def detect_chrome_profiles(self, user_data_dir):
+        """
+        Detect available Chrome profiles in the user data directory
+        
+        Args:
+            user_data_dir (str): Path to Chrome User Data directory
+            
+        Returns:
+            list: List of available profile directories
+        """
+        if not os.path.exists(user_data_dir):
+            return []
+        
+        profiles = []
+        
+        # Check for Default profile
+        default_path = os.path.join(user_data_dir, "Default")
+        if os.path.exists(default_path):
+            profiles.append("Default")
+        
+        # Check for numbered profiles (Profile 1, Profile 2, etc.)
+        for i in range(1, 20):  # Check up to Profile 19
+            profile_name = f"Profile {i}"
+            profile_path = os.path.join(user_data_dir, profile_name)
+            if os.path.exists(profile_path):
+                profiles.append(profile_name)
+        
+        return profiles
+    
+    def select_chrome_profile(self, user_data_dir):
+        """
+        Let user select Chrome profile if multiple profiles exist
+        
+        Args:
+            user_data_dir (str): Path to Chrome User Data directory
+            
+        Returns:
+            str: Selected profile directory name
+        """
+        profiles = self.detect_chrome_profiles(user_data_dir)
+        
+        if not profiles:
+            print("No Chrome profiles found!")
+            return "Default"  # Fallback to Default
+        
+        if len(profiles) == 1:
+            print(f"Using Chrome profile: {profiles[0]}")
+            return profiles[0]
+        
+        # Multiple profiles found - let user choose
+        print("\nMultiple Chrome profiles detected:")
+        print("=" * 40)
+        for i, profile in enumerate(profiles):
+            print(f"{i + 1}. {profile}")
+        print()
+        
+        while True:
+            try:
+                choice = input(f"Select profile (1-{len(profiles)}): ").strip()
+                choice_idx = int(choice) - 1
+                if 0 <= choice_idx < len(profiles):
+                    selected_profile = profiles[choice_idx]
+                    print(f"Selected Chrome profile: {selected_profile}")
+                    return selected_profile
+                else:
+                    print(f"Please enter a number between 1 and {len(profiles)}")
+            except ValueError:
+                print("Please enter a valid number")
+            except KeyboardInterrupt:
+                print("\nUsing Default profile")
+                return "Default"
+    
     def select_browser(self):
         """Let user select which browser to use"""
         browsers = self.get_browser_locations()
         
-        print("🌐 Available Browsers:")
+        print("Available Browsers:")
         print("=" * 50)
         
         available_browsers = []
         for key, info in browsers.items():
             executable_path, profile_path = self.find_browser_executable(key)
-            status = "✅ Available" if executable_path else "❌ Not Found"
+            status = "Available" if executable_path else "Not Found"
             print(f"{len(available_browsers) + 1}. {info['name']} - {status}")
             if executable_path:
-                print(f"   📁 Executable: {executable_path}")
-                print(f"   👤 Profile: {profile_path}")
+                print(f"   Executable: {executable_path}")
+                print(f"   Profile: {profile_path}")
                 available_browsers.append((key, executable_path, profile_path))
             print()
         
@@ -152,10 +224,10 @@ class ContestVotingBot:
                 if 0 <= choice_idx < len(available_browsers):
                     self.browser_choice, self.browser_path, self.profile_path = available_browsers[choice_idx]
                     browser_name = browsers[self.browser_choice]["name"]
-                    print(f"✅ Selected: {browser_name}")
-                    print(f"📁 Using: {self.browser_path}")
+                    print(f"Selected: {browser_name}")
+                    print(f"Using: {self.browser_path}")
                     if self.profile_path:
-                        print(f"👤 Profile: {self.profile_path}")
+                        print(f"Profile: {self.profile_path}")
                     break
                 else:
                     print("Invalid choice. Please try again.")
@@ -178,11 +250,44 @@ class ContestVotingBot:
         # Set browser executable path
         chrome_options.binary_location = self.browser_path
         
-        # Automatically use real profile with saved logins
+        # Handle profile selection differently for Chrome vs other browsers
         if self.profile_path:
-            chrome_options.add_argument(f"--user-data-dir={self.profile_path}")
-            chrome_options.add_argument("--profile-directory=Default")
-            print("Using saved profile - your logged-in accounts will be available!")
+            if self.browser_choice == "chrome":
+                # For Chrome, let user select specific profile
+                selected_profile = self.select_chrome_profile(self.profile_path)
+                
+                # Create a unique user data directory to avoid Chrome's "already in use" error
+                import tempfile
+                import shutil
+                
+                # Create temporary directory with timestamp to ensure uniqueness
+                import time
+                timestamp = str(int(time.time()))
+                temp_dir = tempfile.mkdtemp(prefix=f"chrome_automation_{timestamp}_")
+                
+                # Copy essential profile data (cookies, login data) if possible
+                source_profile_path = os.path.join(self.profile_path, selected_profile)
+                if os.path.exists(source_profile_path):
+                    try:
+                        # Copy important files for login persistence
+                        important_files = ['Cookies', 'Login Data', 'Web Data', 'Preferences']
+                        for file_name in important_files:
+                            source_file = os.path.join(source_profile_path, file_name)
+                            if os.path.exists(source_file):
+                                shutil.copy2(source_file, temp_dir)
+                        print(f"Copied login data from profile: {selected_profile}")
+                    except Exception as e:
+                        print(f"Warning: Could not copy profile data: {e}")
+                        print("You may need to log in to your accounts again")
+                
+                chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+                print(f"Using Chrome profile: {selected_profile}")
+                print(f"Temporary session directory: {temp_dir}")
+            else:
+                # For other Chromium browsers, use default behavior
+                chrome_options.add_argument(f"--user-data-dir={self.profile_path}")
+                chrome_options.add_argument("--profile-directory=Default")
+                print("Using saved profile - your logged-in accounts will be available!")
         else:
             print("No profile found - using clean session")
         
@@ -190,6 +295,7 @@ class ContestVotingBot:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_argument("--remote-debugging-port=9222")  # Add remote debugging port
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
@@ -361,7 +467,7 @@ class ContestVotingBot:
                 print("No Google accounts found in the list")
                 return False, None, None
             
-            print(f"✅ Found {len(account_items)} Google accounts available")
+            print(f"Found {len(account_items)} Google accounts available")
             
             # List all accounts for reference
             available_accounts = []
@@ -371,11 +477,11 @@ class ContestVotingBot:
                 
                 # Determine account status
                 if email in self.voted_accounts:
-                    status = "🚫 Already voted"
+                    status = "Already voted"
                 elif email in self.unusable_accounts:
-                    status = "🚫 Unusable (password/verification required)"
+                    status = "Unusable (password/verification required)"
                 else:
-                    status = "✅ Available"
+                    status = "Available"
                 
                 print(f"   {i}: {email} (authuser={authuser}) - {status}")
                 
@@ -552,7 +658,7 @@ class ContestVotingBot:
                 return False
                 
         except Exception as e:
-            print(f"❌ Error clicking vote button: {e}")
+            print(f"Error clicking vote button: {e}")
             return False
     
     def handle_google_authorization(self):
@@ -622,13 +728,13 @@ class ContestVotingBot:
                     # Check if button text is blacklisted (cancel/back buttons)
                     is_blacklisted = any(blacklisted_text in button_text for blacklisted_text in blacklisted_button_texts)
                     if is_blacklisted:
-                        print(f"❌ Skipping blacklisted button: '{button_text}'")
+                        print(f"Skipping blacklisted button: '{button_text}'")
                         continue
                     
                     # Check if button text is in allowed list (continue/proceed buttons)
                     is_allowed = any(allowed_text in button_text for allowed_text in allowed_button_texts)
                     if is_allowed:
-                        print(f"✅ Found authorized proceed button: '{button_text}'")
+                        print(f"Found authorized proceed button: '{button_text}'")
                         print("Clicking authorization button...")
                         
                         # Scroll button into view and click
@@ -654,7 +760,7 @@ class ContestVotingBot:
             return True
             
         except Exception as e:
-            print(f"❌ Error handling authorization: {e}")
+            print(f"Error handling authorization: {e}")
             return False
     
     def handle_existing_login(self):
@@ -686,7 +792,7 @@ class ContestVotingBot:
                         if logout_btn.is_displayed():
                             logout_text = logout_btn.text.strip()
                             if 'Đăng xuất' in logout_text or 'Logout' in logout_text or 'Sign out' in logout_text:
-                                print(f"✅ Found existing login - logout button: '{logout_text}'")
+                                print(f"Found existing login - logout button: '{logout_text}'")
                                 print("Clicking logout to start fresh...")
                                 logout_btn.click()
                                 time.sleep(3)  # Wait for logout to complete
@@ -699,7 +805,7 @@ class ContestVotingBot:
                     break
             
             if logout_found:
-                print("✅ Successfully logged out from existing session")
+                print("Successfully logged out from existing session")
                 time.sleep(2)  # Additional wait for page to update
             else:
                 print("No existing login found or already logged out")
@@ -707,7 +813,7 @@ class ContestVotingBot:
             return True
             
         except Exception as e:
-            print(f"❌ Error handling existing login: {e}")
+            print(f"Error handling existing login: {e}")
             return True  # Continue anyway
     
     def redirect_to_target_page(self, target_url="https://disanketnoi.vn/bai-du-thi/ruoc-gom/"):
@@ -725,7 +831,7 @@ class ContestVotingBot:
             
             # Check if we're already on the target page
             if target_url in current_url:
-                print(f"✅ Already on target page: {target_url}")
+                print(f"Already on target page: {target_url}")
                 return True
             
             # Check if we were redirected to main page or somewhere else
@@ -737,7 +843,7 @@ class ContestVotingBot:
                 # Verify we're on the correct page
                 new_url = self.driver.current_url
                 if target_url in new_url:
-                    print("✅ Successfully redirected to target page")
+                    print("Successfully redirected to target page")
                     return True
                 else:
                     print(f"Redirect may have failed. Current URL: {new_url}")
@@ -746,7 +852,7 @@ class ContestVotingBot:
             return True
             
         except Exception as e:
-            print(f"❌ Error redirecting to target page: {e}")
+            print(f"Error redirecting to target page: {e}")
             return False
     
     def auto_vote_all_accounts(self):
@@ -913,7 +1019,7 @@ class ContestVotingBot:
             self.handle_existing_login()
             
             # Step 2: Find and click login trigger
-            print("🔍 Looking for login trigger button...")
+            print("Looking for login trigger button...")
             login_trigger = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".jet-auth-links__item"))
             )
@@ -927,7 +1033,7 @@ class ContestVotingBot:
                 time.sleep(3)
                 
                 # Step 3: Find Google sign-in button
-                print("🔍 Looking for Google sign-in button...")
+                print("Looking for Google sign-in button...")
                 google_btn = self.wait.until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, ".mo_btn-google.login-button"))
                 )
@@ -1006,10 +1112,10 @@ class ContestVotingBot:
             keep_open = input("\n🔒 Keep browser open for manual testing? (y/n): ")
             if keep_open.lower() != 'y':
                 self.driver.quit()
-                print("👋 Browser closed")
+                print("Browser closed")
 
 if __name__ == "__main__":
-    print("� Contest Voting Automation")
+    print("Contest Voting Automation")
     print("=" * 50)
     print("This script will automatically vote with all your Google accounts.")
     print("")
@@ -1020,15 +1126,15 @@ if __name__ == "__main__":
         bot = ContestVotingBot()
         
         # Start the automated voting process
-        print("🚀 Starting automated voting process...")
+        print("Starting automated voting process...")
         successful_votes = bot.auto_vote_all_accounts()
         
-        print(f"\n🎯 Automation completed!")
-        print(f"📊 Total successful votes: {successful_votes}")
-        print(f"📊 Accounts processed: {len(bot.voted_accounts)}")
+        print(f"\nAutomation completed!")
+        print(f"Total successful votes: {successful_votes}")
+        print(f"Accounts processed: {len(bot.voted_accounts)}")
         
         if bot.voted_accounts:
-            print(f"📊 Voted accounts: {list(bot.voted_accounts)}")
+            print(f"Voted accounts: {list(bot.voted_accounts)}")
                 
     except KeyboardInterrupt:
         print("\nAutomation stopped by user")
