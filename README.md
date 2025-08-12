@@ -1,4 +1,4 @@
-# Contest Voting Automation Script
+# Auto-vote Python Script
 
 An automated Python script that automatically votes using all the Google accounts saved in the browser you use. 
 
