@@ -158,23 +158,29 @@ class ContestVotingBot:
             user_data_dir (str): Path to Chrome User Data directory
             
         Returns:
-            str: Selected profile directory name
+            str: Full path to selected profile directory
         """
         profiles = self.detect_chrome_profiles(user_data_dir)
         
         if not profiles:
             print("No Chrome profiles found!")
-            return "Default"  # Fallback to Default
+            default_path = os.path.join(user_data_dir, "Default")
+            print(f"Using default path: {default_path}")
+            return default_path
         
         if len(profiles) == 1:
+            profile_path = os.path.join(user_data_dir, profiles[0])
             print(f"Using Chrome profile: {profiles[0]}")
-            return profiles[0]
+            print(f"Profile directory: {profile_path}")
+            return profile_path
         
         # Multiple profiles found - let user choose
         print("\nMultiple Chrome profiles detected:")
         print("=" * 40)
         for i, profile in enumerate(profiles):
+            profile_path = os.path.join(user_data_dir, profile)
             print(f"{i + 1}. {profile}")
+            print(f"   Directory: {profile_path}")
         print()
         
         while True:
@@ -183,15 +189,18 @@ class ContestVotingBot:
                 choice_idx = int(choice) - 1
                 if 0 <= choice_idx < len(profiles):
                     selected_profile = profiles[choice_idx]
+                    selected_path = os.path.join(user_data_dir, selected_profile)
                     print(f"Selected Chrome profile: {selected_profile}")
-                    return selected_profile
+                    print(f"Using directory: {selected_path}")
+                    return selected_path
                 else:
                     print(f"Please enter a number between 1 and {len(profiles)}")
             except ValueError:
                 print("Please enter a valid number")
             except KeyboardInterrupt:
                 print("\nUsing Default profile")
-                return "Default"
+                default_path = os.path.join(user_data_dir, "Default")
+                return default_path
     
     def select_browser(self):
         """Let user select which browser to use"""
@@ -253,36 +262,13 @@ class ContestVotingBot:
         # Handle profile selection differently for Chrome vs other browsers
         if self.profile_path:
             if self.browser_choice == "chrome":
-                # For Chrome, let user select specific profile
-                selected_profile = self.select_chrome_profile(self.profile_path)
+                # For Chrome, let user select specific profile directory
+                selected_profile_path = self.select_chrome_profile(self.profile_path)
                 
-                # Create a unique user data directory to avoid Chrome's "already in use" error
-                import tempfile
-                import shutil
-                
-                # Create temporary directory with timestamp to ensure uniqueness
-                import time
-                timestamp = str(int(time.time()))
-                temp_dir = tempfile.mkdtemp(prefix=f"chrome_automation_{timestamp}_")
-                
-                # Copy essential profile data (cookies, login data) if possible
-                source_profile_path = os.path.join(self.profile_path, selected_profile)
-                if os.path.exists(source_profile_path):
-                    try:
-                        # Copy important files for login persistence
-                        important_files = ['Cookies', 'Login Data', 'Web Data', 'Preferences']
-                        for file_name in important_files:
-                            source_file = os.path.join(source_profile_path, file_name)
-                            if os.path.exists(source_file):
-                                shutil.copy2(source_file, temp_dir)
-                        print(f"Copied login data from profile: {selected_profile}")
-                    except Exception as e:
-                        print(f"Warning: Could not copy profile data: {e}")
-                        print("You may need to log in to your accounts again")
-                
-                chrome_options.add_argument(f"--user-data-dir={temp_dir}")
-                print(f"Using Chrome profile: {selected_profile}")
-                print(f"Temporary session directory: {temp_dir}")
+                # Use the specific profile directory directly
+                chrome_options.add_argument(f"--user-data-dir={selected_profile_path}")
+                print(f"Using Chrome profile directory: {selected_profile_path}")
+                print("Note: Chrome will use this profile directly (no copying)")
             else:
                 # For other Chromium browsers, use default behavior
                 chrome_options.add_argument(f"--user-data-dir={self.profile_path}")
